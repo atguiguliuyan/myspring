@@ -1,13 +1,13 @@
 package com.liuyan.servlet;
 
 import com.liuyan.annotation.Autowired;
-import com.liuyan.annotation.Controller;
+import com.liuyan.annotation.LyController;
+import com.liuyan.annotation.LyRequestMapping;
 import com.liuyan.annotation.Service;
 import com.liuyan.beans.LyHandlerAdapter;
 import com.liuyan.beans.LyHandlerMapping;
 import com.liuyan.beans.LyModelAndView;
 import com.liuyan.context.LyApplicationContext;
-import org.eclipse.jetty.util.UrlEncoded;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -18,9 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.HttpRetryException;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,11 +31,11 @@ public class DispatcherServlet extends HttpServlet {
 
     private Properties contexConfig=new Properties();
 
-    private Map<String,Object> beanMap=new  ConcurrentHashMap<String,Object>();
+    private Map<String,Object> ioc=new  ConcurrentHashMap<String,Object>();
 
     private List<String> beanName=new ArrayList<>();
 
-    private List<LyHandlerMapping> handlerMapping=new ArrayList<>();
+    private Map<String,Object> handlerMapping=new ConcurrentHashMap<>();
 
     private List<LyHandlerAdapter> handlerAdapters=new ArrayList<>();
 
@@ -140,11 +138,11 @@ public class DispatcherServlet extends HttpServlet {
     private void initRequestToViewNameTranslator(LyApplicationContext lyApplicationContext) {
     }
     private void doAutoWired() {
-        if(beanMap.isEmpty()){
+        if(ioc.isEmpty()){
             return ;
         }
 
-        for (Map.Entry<String,Object> entry:beanMap.entrySet()){
+        for (Map.Entry<String,Object> entry:ioc.entrySet()){
             Field[] declaredFields = entry.getValue().getClass().getDeclaredFields();
             for (Field field:declaredFields){
                 if(!field.isAnnotationPresent(Autowired.class)){
@@ -157,7 +155,7 @@ public class DispatcherServlet extends HttpServlet {
                 }
                 field.setAccessible(true);
                 try {
-                    field.set(entry.getValue(),beanMap.get(name));
+                    field.set(entry.getValue(),ioc.get(name));
                 } catch (IllegalAccessException e) {
                     e.printStackTrace();
                 }
@@ -183,10 +181,10 @@ public class DispatcherServlet extends HttpServlet {
         try {
             for (String classname :beanName){
                 Class<?> aClass = Class.forName(classname);
-                if (aClass.isAnnotationPresent(Controller.class)){
+                if (aClass.isAnnotationPresent(LyController.class)){
                     String name=lowerFirestCase(aClass.getSimpleName());
                     //String 不会直接putinstance，而是beandefinition
-                    beanMap.put(name,aClass.newInstance());
+                    ioc.put(name,aClass.newInstance());
                 }else if(aClass.isAnnotationPresent(Service.class)){
                     Service annotation = aClass.getAnnotation(Service.class);
                     //默认首字母注入
@@ -198,10 +196,10 @@ public class DispatcherServlet extends HttpServlet {
                         name=lowerFirestCase(aClass.getSimpleName());
                     }
                     Object instance=aClass.newInstance();
-                    beanMap.put(name,instance);
+                    ioc.put(name,instance);
                     Class<?>[] interfaces = aClass.getInterfaces();
                     for (Class<?> i:interfaces){
-                        beanMap.put(i.getSimpleName(),instance);
+                        ioc.put(i.getSimpleName(),instance);
                     }
                 }else {
                     continue;
@@ -231,6 +229,32 @@ public class DispatcherServlet extends HttpServlet {
         }
     }
     private void initHanderMapping() {
+        if(ioc.isEmpty()){
+            return ;
+        }
+        for (Map.Entry<String,Object> entry:ioc.entrySet()){
+            Class<?> aClass = entry.getValue().getClass();
+            if (!aClass.isAnnotationPresent(LyController.class)){
+                continue;
+            }
+            String baseUlr=null;
+            if(aClass.isAnnotationPresent(LyRequestMapping.class)){
+                LyRequestMapping requestMapping = aClass.getAnnotation(LyRequestMapping.class);
+
+                baseUlr=requestMapping.value();
+            }
+
+            Method[] methods = aClass.getMethods();
+            for (Method method :methods){
+                if(!method.isAnnotationPresent(LyRequestMapping.class)){
+                    continue;
+                }
+                LyRequestMapping annotation = method.getAnnotation(LyRequestMapping.class);
+                String url=baseUlr+"/"+annotation.value().replaceAll("/+","/");
+                handlerMapping.put(url,method);
+
+            }
+        }
     }
 
 

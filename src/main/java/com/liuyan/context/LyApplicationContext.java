@@ -1,19 +1,17 @@
 package com.liuyan.context;
 
 import com.liuyan.annotation.Autowired;
-import com.liuyan.annotation.Controller;
+import com.liuyan.annotation.LyController;
 import com.liuyan.annotation.Service;
 import com.liuyan.beans.BeanDefinition;
 import com.liuyan.beans.BeanPostProcessor;
 import com.liuyan.beans.BeanWrapper;
 import com.liuyan.core.BeanFactory;
 
-import java.io.File;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -69,7 +67,7 @@ public class LyApplicationContext implements BeanFactory{
 
     public void populateBean(String beanName,Object instance){
         Class<?> aClass = instance.getClass();
-        if(!(aClass.isAnnotationPresent(Controller.class))||aClass.isAnnotationPresent(Service.class)){
+        if(!(aClass.isAnnotationPresent(LyController.class))||aClass.isAnnotationPresent(Service.class)){
             return ;
         }
         Field[] fields = aClass.getDeclaredFields();

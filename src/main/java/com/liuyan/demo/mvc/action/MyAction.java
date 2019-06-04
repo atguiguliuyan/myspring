@@ -2,18 +2,18 @@ package com.liuyan.demo.mvc.action;
 
 
 import com.liuyan.annotation.Autowired;
-import com.liuyan.annotation.Controller;
-import com.liuyan.annotation.RequestMapping;
+import com.liuyan.annotation.LyController;
+import com.liuyan.annotation.LyRequestMapping;
 import com.liuyan.beans.LyModelAndView;
 import com.liuyan.demo.service.IDemoService;
 
-@Controller
+@LyController
 public class MyAction {
 
 		@Autowired
 		IDemoService demoService;
 	
-		@RequestMapping("/index.html")
+		@LyRequestMapping("/index.html")
 		public LyModelAndView query(){
 
 			return null;
