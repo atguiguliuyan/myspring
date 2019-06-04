@@ -1,9 +1,6 @@
 package com.liuyan.servlet;
 
-import com.liuyan.annotation.Autowired;
-import com.liuyan.annotation.LyController;
-import com.liuyan.annotation.LyRequestMapping;
-import com.liuyan.annotation.Service;
+import com.liuyan.annotation.*;
 import com.liuyan.beans.LyHandlerAdapter;
 import com.liuyan.beans.LyHandlerMapping;
 import com.liuyan.beans.LyModelAndView;
@@ -17,6 +14,7 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -35,7 +33,7 @@ public class DispatcherServlet extends HttpServlet {
 
     private List<String> beanName=new ArrayList<>();
 
-    private Map<String,Object> handlerMapping=new ConcurrentHashMap<>();
+    private Map<String,Method> handlerMapping=new ConcurrentHashMap<>();
 
     private List<LyHandlerAdapter> handlerAdapters=new ArrayList<>();
 
@@ -47,22 +45,57 @@ public class DispatcherServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        String url = req.getRequestURI();
-        String contextPath = req.getContextPath();
-        url=url.replace(contextPath,"").replaceAll("/+","/");
 
+        try {
+            doDispatcher(req,resp);
+        } catch (Exception e) {
+            e.printStackTrace();
+            resp.getWriter().write("500"+e.getMessage());
+        }
 
-        //对象要从ioc容器中获取
-        doDispatcher(req,resp);
+        return;
 
 
     }
 
-    private void doDispatcher(HttpServletRequest req, HttpServletResponse resp) {
-      LyHandlerMapping handler= getHandler(req);
-      LyHandlerAdapter ha=getHandlerAdapter(handler);
-      LyModelAndView lyModelAndView=ha.handle(req,resp,handler);
-      processDispatcherResult(resp,lyModelAndView);
+    private void doDispatcher(HttpServletRequest req, HttpServletResponse resp) throws  Exception {
+       String url =req.getRequestURI();
+        String contextPath = req.getContextPath();
+        url.replaceAll(contextPath,"").replaceAll("/+","/");
+        if(!this.handlerMapping.containsKey(url)){
+            resp.getWriter().write("404 NOT FOUND！！");
+            return;
+        }
+        Method method=this.handlerMapping.get(url);
+        Map<String, String[]> parameterMap = req.getParameterMap();
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        Object[] paramValues=new Object[parameterTypes.length];
+        Annotation[][] parameterAnnotations = method.getParameterAnnotations();
+        for (int i=0;i<parameterTypes.length;i++){
+            Class<?> parameterType = parameterTypes[i];
+            if(parameterType==HttpServletRequest.class){
+                paramValues[i]=req;
+                continue;
+            }else if(parameterType== HttpServletResponse.class){
+                paramValues[i]=resp;
+                continue;
+            }else if(parameterType==String.class){
+
+                Annotation[] parameterAnnotation = parameterAnnotations[i];
+                for (int k=0;k<parameterAnnotation.length;k++){
+                    Annotation annotation = parameterAnnotation[k];
+                    if(annotation.annotationType()==RequestParam.class){
+                        String value =((RequestParam)annotation).value();
+                        if (parameterMap.containsKey(value)){
+                            paramValues[i]=(String)(parameterMap.get(value)[0]);
+                        }
+                    }
+
+                }
+            }
+        }
+        String beanName=lowerFirestCase(method.getDeclaringClass().getSimpleName());
+        method.invoke(ioc.get(beanName),paramValues);
     }
 
     private void processDispatcherResult(HttpServletResponse resp, LyModelAndView lyModelAndView) {
@@ -80,63 +113,24 @@ public class DispatcherServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         //版本1
-//        //定位
-//        doLocalConfig(config.getInitParameter("contextConfigLocation"));
-//        //加载
-//        doScanner(contexConfig.getProperty("scanPackage"));
-//        //注册
-//        doInstance();
-//        //自动注入
-//        doAutoWired();
-//        //springmvc会多一个handlermapping
-//        //以便于从浏览器获得用户输入的url以后，能够找到具体的method，通过反射去调用
-//        initHanderMapping();
+        //定位
+        doLocalConfig(config.getInitParameter("contextConfigLocation"));
+        //加载
+        doScanner(contexConfig.getProperty("scanPackage"));
+        //注册
+        doInstance();
+        //自动注入
+        doAutoWired();
+        //springmvc会多一个handlermapping
+        //以便于从浏览器获得用户输入的url以后，能够找到具体的method，通过反射去调用
+        initHanderMapping();
 
-        LyApplicationContext lyApplicationContext = new LyApplicationContext(config.getInitParameter("contextConfigLocation"));
-        initStrategies(lyApplicationContext);
-    }
+        System.out.println("完成");
 
-    private void initStrategies(LyApplicationContext lyApplicationContext) {
-        initMultipartResolver(lyApplicationContext);
-        initLocaleResolver(lyApplicationContext);
-        initThemeResolver(lyApplicationContext);
-        //用来保存controller配置的requestMapping和method的对应关系
-        initHandlerMappings(lyApplicationContext);
-        //动态匹配method参数，包括类转换，动态赋值
-        initHandlerAdapters(lyApplicationContext);
-        initHandlerExceptionResolvers(lyApplicationContext);
-        initRequestToViewNameTranslator(lyApplicationContext);
-        //实现动态模板的解析自己解析一套模板语言
-        initViewResolvers(lyApplicationContext);
-        initFlashMapManager(lyApplicationContext);
+
     }
 
 
-
-    private void initViewResolvers(LyApplicationContext lyApplicationContext) {
-
-    }
-
-    private void initHandlerAdapters(LyApplicationContext lyApplicationContext) {
-
-    }
-
-    private void initHandlerMappings(LyApplicationContext lyApplicationContext) {
-        //
-    }
-
-    private void initLocaleResolver(LyApplicationContext lyApplicationContext) {
-    }
-    private void initMultipartResolver(LyApplicationContext lyApplicationContext) {
-    }
-    private void initFlashMapManager(LyApplicationContext lyApplicationContext) {
-    }
-    private void initThemeResolver(LyApplicationContext lyApplicationContext) {
-    }
-    private void initHandlerExceptionResolvers(LyApplicationContext lyApplicationContext) {
-    }
-    private void initRequestToViewNameTranslator(LyApplicationContext lyApplicationContext) {
-    }
     private void doAutoWired() {
         if(ioc.isEmpty()){
             return ;
@@ -250,7 +244,7 @@ public class DispatcherServlet extends HttpServlet {
                     continue;
                 }
                 LyRequestMapping annotation = method.getAnnotation(LyRequestMapping.class);
-                String url=baseUlr+"/"+annotation.value().replaceAll("/+","/");
+                String url=baseUlr+annotation.value();
                 handlerMapping.put(url,method);
 
             }
