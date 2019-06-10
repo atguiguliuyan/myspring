@@ -20,6 +20,7 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * @author liuyan
@@ -33,7 +34,7 @@ public class DispatcherServlet extends HttpServlet {
 
     private List<String> beanName=new ArrayList<>();
 
-    private Map<String,Method> handlerMapping=new ConcurrentHashMap<>();
+    private List<HandlerMapping> handlerMapping=new ArrayList<>();
 
     private List<LyHandlerAdapter> handlerAdapters=new ArrayList<>();
 
@@ -59,43 +60,39 @@ public class DispatcherServlet extends HttpServlet {
     }
 
     private void doDispatcher(HttpServletRequest req, HttpServletResponse resp) throws  Exception {
-       String url =req.getRequestURI();
-        String contextPath = req.getContextPath();
-        url.replaceAll(contextPath,"").replaceAll("/+","/");
-        if(!this.handlerMapping.containsKey(url)){
-            resp.getWriter().write("404 NOT FOUND！！");
+        HandlerMapping handler = getHandler(req);
+        if(handler == null){
+            //如果没有匹配上，返回404错误
+            resp.getWriter().write("404 Not Found");
             return;
         }
-        Method method=this.handlerMapping.get(url);
-        Map<String, String[]> parameterMap = req.getParameterMap();
-        Class<?>[] parameterTypes = method.getParameterTypes();
-        Object[] paramValues=new Object[parameterTypes.length];
-        Annotation[][] parameterAnnotations = method.getParameterAnnotations();
-        for (int i=0;i<parameterTypes.length;i++){
-            Class<?> parameterType = parameterTypes[i];
-            if(parameterType==HttpServletRequest.class){
-                paramValues[i]=req;
-                continue;
-            }else if(parameterType== HttpServletResponse.class){
-                paramValues[i]=resp;
-                continue;
-            }else if(parameterType==String.class){
 
-                Annotation[] parameterAnnotation = parameterAnnotations[i];
-                for (int k=0;k<parameterAnnotation.length;k++){
-                    Annotation annotation = parameterAnnotation[k];
-                    if(annotation.annotationType()==RequestParam.class){
-                        String value =((RequestParam)annotation).value();
-                        if (parameterMap.containsKey(value)){
-                            paramValues[i]=(String)(parameterMap.get(value)[0]);
-                        }
-                    }
 
-                }
-            }
+        //获取方法的参数列表
+        Class<?> [] paramTypes = handler.method.getParameterTypes();
+
+        //保存所有需要自动赋值的参数值
+        Object [] paramValues = new Object[paramTypes.length];
+
+
+        Map<String,String[]> params = req.getParameterMap();
+        for (Map.Entry<String, String[]> param : params.entrySet()) {
+            String value = Arrays.toString(param.getValue()).replaceAll("\\[|\\]", "").replaceAll(",\\s", ",");
+
+            //如果找到匹配的对象，则开始填充参数值
+            if(!handler.paramIndexMapping.containsKey(param.getKey())){continue;}
+            int index = handler.paramIndexMapping.get(param.getKey());
+            paramValues[index] = convert(paramTypes[index],value);
         }
-        String beanName=lowerFirestCase(method.getDeclaringClass().getSimpleName());
-        method.invoke(ioc.get(beanName),paramValues);
+
+
+        //设置方法中的request和response对象
+        int reqIndex = handler.paramIndexMapping.get(HttpServletRequest.class.getName());
+        paramValues[reqIndex] = req;
+        int respIndex = handler.paramIndexMapping.get(HttpServletResponse.class.getName());
+        paramValues[respIndex] = resp;
+
+        handler.method.invoke(handler.controller, paramValues);
     }
 
     private void processDispatcherResult(HttpServletResponse resp, LyModelAndView lyModelAndView) {
@@ -106,9 +103,6 @@ public class DispatcherServlet extends HttpServlet {
         return null;
     }
 
-    private LyHandlerMapping getHandler(HttpServletRequest req) {
-        return null;
-    }
 
     @Override
     public void init(ServletConfig config) throws ServletException {
@@ -234,7 +228,6 @@ public class DispatcherServlet extends HttpServlet {
             String baseUlr=null;
             if(aClass.isAnnotationPresent(LyRequestMapping.class)){
                 LyRequestMapping requestMapping = aClass.getAnnotation(LyRequestMapping.class);
-
                 baseUlr=requestMapping.value();
             }
 
@@ -245,7 +238,7 @@ public class DispatcherServlet extends HttpServlet {
                 }
                 LyRequestMapping annotation = method.getAnnotation(LyRequestMapping.class);
                 String url=baseUlr+annotation.value();
-                handlerMapping.put(url,method);
+                handlerMapping.add(new HandlerMapping(url,entry.getValue(),method));
 
             }
         }
@@ -267,4 +260,32 @@ public class DispatcherServlet extends HttpServlet {
         chars[0]+=32;
         return String.valueOf(chars);
     }
+
+    private Object convert(Class<?> type,String value){
+        if(Integer.class==type){
+            return Integer.valueOf(value);
+        }
+        return value;
+    }
+    private HandlerMapping getHandler(HttpServletRequest req) throws Exception{
+        if(handlerMapping.isEmpty()){ return null; }
+
+        String url = req.getRequestURI();
+        String contextPath = req.getContextPath();
+        url = url.replace(contextPath, "").replaceAll("/+", "/");
+
+        for (HandlerMapping handler : handlerMapping) {
+            try{
+                //如果没有匹配上继续下一个匹配
+                if(!handler.url.equals(url)){ continue; }
+
+                return handler;
+            }catch(Exception e){
+                throw e;
+            }
+        }
+        return null;
+    }
+
+
 }
